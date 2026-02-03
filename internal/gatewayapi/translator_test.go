@@ -125,6 +125,7 @@ func TestTranslate(t *testing.T) {
 				EnvoyPatchPolicyEnabled:         envoyPatchPolicyEnabled,
 				BackendEnabled:                  backendEnabled,
 				ControllerNamespace:             "envoy-gateway-system",
+				DNSDomain:                       "cluster.local",
 				MergeGateways:                   IsMergeGatewaysEnabled(resources),
 				GatewayNamespaceMode:            gatewayNamespaceMode,
 				WasmCache:                       &mockWasmCache{},

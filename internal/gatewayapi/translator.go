@@ -110,6 +110,9 @@ type Translator struct {
 	// ControllerNamespace is the namespace that Envoy Gateway controller runs in.
 	ControllerNamespace string
 
+	// DNSDomain is the dns domain used by k8s services. Defaults to "cluster.local".
+	DNSDomain string
+
 	// WasmCache is the cache for Wasm modules.
 	WasmCache wasm.Cache
 
