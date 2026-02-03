@@ -297,12 +297,11 @@ func (t *Translator) processHTTPRouteRules(httpRoute *HTTPRouteContext, parentRe
 			}
 			// Check if auto_host_rewrite is enabled via Rule filters.
 			// If auto_host_rewrite is enabled and the backend is a Service (and we used endpoint routing which results in IPs),
-			// we should switch to DNS routing to allow Envoy to resolve the upstream host.
-			// This is required because auto_host_rewrite only works with STRICT_DNS/LOGICAL_DNS clusters.
+			// we should populate the hostname field in the endpoints to allow Envoy to use it for host rewriting.
 			if httpFiltersContext != nil && httpFiltersContext.URLRewrite != nil &&
 				httpFiltersContext.URLRewrite.Host != nil && httpFiltersContext.URLRewrite.Host.Backend != nil && *httpFiltersContext.URLRewrite.Host.Backend {
 				backendNamespace := NamespaceDerefOr(rule.BackendRefs[i].Namespace, httpRoute.GetNamespace())
-				t.ensureDNSCluster(ds, rule.BackendRefs[i].BackendRef.BackendObjectReference, backendNamespace)
+				t.ensureEndpointHostname(ds, rule.BackendRefs[i].BackendRef.BackendObjectReference, backendNamespace)
 			}
 
 			// skip backendRefs with weight 0 as they do not affect the traffic distribution
@@ -1026,11 +1025,10 @@ func (t *Translator) processGRPCRouteRules(grpcRoute *GRPCRouteContext, parentRe
 
 			// Check if auto_host_rewrite is enabled via Rule filters.
 			// If auto_host_rewrite is enabled and the backend is a Service (and we used endpoint routing which results in IPs),
-			// we should switch to DNS routing to allow Envoy to resolve the upstream host.
-			// This is required because auto_host_rewrite only works with STRICT_DNS/LOGICAL_DNS clusters.
+			// we should populate the hostname field in the endpoints to allow Envoy to use it for host rewriting.
 			if httpFiltersContext != nil && httpFiltersContext.URLRewrite != nil &&
 				httpFiltersContext.URLRewrite.Host != nil && httpFiltersContext.URLRewrite.Host.Backend != nil && *httpFiltersContext.URLRewrite.Host.Backend {
-				t.ensureDNSCluster(ds, rule.BackendRefs[i].BackendRef.BackendObjectReference, backendNamespace)
+				t.ensureEndpointHostname(ds, rule.BackendRefs[i].BackendRef.BackendObjectReference, backendNamespace)
 			}
 
 			// skip backendRefs with weight 0 as they do not affect the traffic distribution
@@ -2582,7 +2580,7 @@ func buildStatName(pattern string, route RouteContext, ruleName *gwapiv1.Section
 	return statName
 }
 
-func (t *Translator) ensureDNSCluster(ds *ir.DestinationSetting, backendRef gwapiv1.BackendObjectReference, backendNamespace string) {
+func (t *Translator) ensureEndpointHostname(ds *ir.DestinationSetting, backendRef gwapiv1.BackendObjectReference, backendNamespace string) {
 	if KindDerefOr(backendRef.Kind, resource.KindService) == resource.KindService {
 		dnsDomain := t.DNSDomain
 		if dnsDomain == "" {
@@ -2591,10 +2589,9 @@ func (t *Translator) ensureDNSCluster(ds *ir.DestinationSetting, backendRef gwap
 		// Construct FQDN.
 		fqdn := fmt.Sprintf("%s.%s.svc.%s", backendRef.Name, backendNamespace, dnsDomain)
 
-		// Overwrite endpoints with the FQDN
-		ds.Endpoints = []*ir.DestinationEndpoint{
-			ir.NewDestEndpoint(nil, fqdn, uint32(*backendRef.Port), false, nil),
+		// Set Hostname for all endpoints
+		for _, ep := range ds.Endpoints {
+			ep.Hostname = ptr.To(fqdn)
 		}
-		ds.AddressType = ptr.To(ir.FQDN)
 	}
 }

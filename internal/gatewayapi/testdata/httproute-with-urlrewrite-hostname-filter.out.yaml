@@ -364,9 +364,10 @@ xdsIR:
             namespace: default
           name: httproute/default/httproute-2/rule/0
           settings:
-          - addressType: FQDN
+          - addressType: IP
             endpoints:
-            - host: service-1.default.svc.cluster.local
+            - host: 7.7.7.7
+              hostname: service-1.default.svc.cluster.local
               port: 8080
             metadata:
               kind: Service
