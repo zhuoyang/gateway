@@ -295,6 +295,15 @@ func (t *Translator) processHTTPRouteRules(httpRoute *HTTPRouteContext, parentRe
 			if unstructuredRef != nil {
 				backendCustomRefs = append(backendCustomRefs, unstructuredRef)
 			}
+			// Check if auto_host_rewrite is enabled via Rule filters.
+			// If auto_host_rewrite is enabled and the backend is a Service (and we used endpoint routing which results in IPs),
+			// we should populate the hostname field in the endpoints to allow Envoy to use it for host rewriting.
+			if httpFiltersContext != nil && httpFiltersContext.URLRewrite != nil &&
+				httpFiltersContext.URLRewrite.Host != nil && httpFiltersContext.URLRewrite.Host.Backend != nil && *httpFiltersContext.URLRewrite.Host.Backend {
+				backendNamespace := NamespaceDerefOr(rule.BackendRefs[i].Namespace, httpRoute.GetNamespace())
+				t.ensureEndpointHostname(ds, rule.BackendRefs[i].BackendRef.BackendObjectReference, backendNamespace)
+			}
+
 			// skip backendRefs with weight 0 as they do not affect the traffic distribution
 			if ds.Weight != nil && *ds.Weight == 0 {
 				continue
@@ -1012,12 +1021,21 @@ func (t *Translator) processGRPCRouteRules(grpcRoute *GRPCRouteContext, parentRe
 				}
 			}
 
+			backendNamespace := NamespaceDerefOr(rule.BackendRefs[i].Namespace, grpcRoute.GetNamespace())
+
+			// Check if auto_host_rewrite is enabled via Rule filters.
+			// If auto_host_rewrite is enabled and the backend is a Service (and we used endpoint routing which results in IPs),
+			// we should populate the hostname field in the endpoints to allow Envoy to use it for host rewriting.
+			if httpFiltersContext != nil && httpFiltersContext.URLRewrite != nil &&
+				httpFiltersContext.URLRewrite.Host != nil && httpFiltersContext.URLRewrite.Host.Backend != nil && *httpFiltersContext.URLRewrite.Host.Backend {
+				t.ensureEndpointHostname(ds, rule.BackendRefs[i].BackendRef.BackendObjectReference, backendNamespace)
+			}
+
 			// skip backendRefs with weight 0 as they do not affect the traffic distribution
 			if ds.Weight != nil && *ds.Weight == 0 {
 				continue
 			}
 			allDs = append(allDs, ds)
-			backendNamespace := NamespaceDerefOr(rule.BackendRefs[i].Namespace, grpcRoute.GetNamespace())
 			backendRefNames[i] = fmt.Sprintf("%s/%s", backendNamespace, rule.BackendRefs[i].Name)
 		}
 
@@ -2560,4 +2578,20 @@ func buildStatName(pattern string, route RouteContext, ruleName *gwapiv1.Section
 	statName = strings.ReplaceAll(statName, egv1a1.StatFormatterRouteRuleNumber, fmt.Sprintf("%d", idx))
 	statName = strings.ReplaceAll(statName, egv1a1.StatFormatterBackendRefs, strings.Join(refs, "|"))
 	return statName
+}
+
+func (t *Translator) ensureEndpointHostname(ds *ir.DestinationSetting, backendRef gwapiv1.BackendObjectReference, backendNamespace string) {
+	if KindDerefOr(backendRef.Kind, resource.KindService) == resource.KindService {
+		dnsDomain := t.DNSDomain
+		if dnsDomain == "" {
+			dnsDomain = "cluster.local"
+		}
+		// Construct FQDN.
+		fqdn := fmt.Sprintf("%s.%s.svc.%s", backendRef.Name, backendNamespace, dnsDomain)
+
+		// Set Hostname for all endpoints
+		for _, ep := range ds.Endpoints {
+			ep.Hostname = ptr.To(fqdn)
+		}
+	}
 }
